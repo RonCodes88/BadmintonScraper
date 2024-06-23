@@ -169,7 +169,7 @@ scopes = [
 ]
 
 # retrieve credentials from secret keys json and authorize the file
-credentials = ServiceAccountCredentials.from_json_keyfile_name('secret key.json', scopes)
+credentials = ServiceAccountCredentials.from_json_keyfile_name('C:/Users/admin/Desktop/BadmintonScraper/data/secret_keys.json', scopes)
 file = gspread.authorize(credentials)
 workbook = file.open('Copy of Ratings for badminton')
 
