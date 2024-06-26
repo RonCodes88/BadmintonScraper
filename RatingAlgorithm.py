@@ -16,3 +16,7 @@ def findEloPoint(rating1: float, rating2: float, k: float, matchResult: bool) ->
         eloPoint = k * (0.0 - P1)
     return eloPoint
 
+
+
+
+

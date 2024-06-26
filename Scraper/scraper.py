@@ -4,6 +4,7 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, WebDriverException
 from bs4 import BeautifulSoup
+from datetime import datetime
 
 def open_tournament_link(link):
     options = webdriver.ChromeOptions()
@@ -103,19 +104,17 @@ def find_all_matches(soup, link_date):
         
         match_data.append({"winner": winner, "loser": loser, "result": result, "date": link_date})
         
+# user_input = input("Please enter a list of tournament URLs separated by commas: ")
 
+# # Split the user input into a list of URLs
+# links = [url.strip() for url in user_input.split(',')]
 
+# for link in links:
+#     soup = open_tournament_link(link)
+#     link_date = link.split('/')[-1]
+#     find_all_matches(soup, link_date)
+        
+# print(match_data)
 
-user_input = input("Please enter a list of tournament URLs separated by commas: ")
-
-# Split the user input into a list of URLs
-links = [url.strip() for url in user_input.split(',')]
-
-for link in links:
-    soup = open_tournament_link(link)
-    link_date = link.split('/')[-1]
-    find_all_matches(soup, link_date)
-    
-print(match_data)
 
 
