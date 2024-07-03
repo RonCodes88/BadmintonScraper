@@ -41,28 +41,24 @@ def clean_and_convert_to_float(cell):
     return cell
 
 
-
-
-# doublesDf = pd.DataFrame(currentDoublesSheet.get_all_values())
-
 '''For testing purposes'''
 # match_data = [
-    #     # {"winner": ["Jasper Liu"], "loser": ["Ronald Li"], "result": "2-1", "date": "20240321"},
-    #     # {"winner": ["Jasper Liu"], "loser": ["Ronald Li"], "result": "2-1", "date": "20240228"},
-    #     # {"winner": ["Jasper Liu"], "loser": ["Ronald Li"], "result": "2-1", "date": "20240625"},
-    #     # {"winner": ["Jasper Liu", "Ronald Li"], "loser": ["Ronald Li", "Jasper Liu"], "result": "2-1", "date": "20240617"},
+        # {"winner": ["Jasper Liu"], "loser": ["Ronald Li"], "result": "2-1", "date": "20240321"},
+        # {"winner": ["Jasper Liu"], "loser": ["Ronald Li"], "result": "2-1", "date": "20240228"},
+        # {"winner": ["Jasper Liu"], "loser": ["Ronald Li"], "result": "2-1", "date": "20240625"},
+        # {"winner": ["Jasper Liu", "Ronald Li"], "loser": ["Ronald Li", "Jasper Liu"], "result": "2-1", "date": "20240617"},
     # ]
 
 def determine_rating_date(match_date, df):
     """Determines the correct rating to get based on the match date."""
     match_date = datetime.strptime(match_date, "%Y%m%d")
-    date_columns = df.columns[7:]
+    date_columns = df.columns[6:]
     days_until_saturday = (5 - match_date.weekday()) % 7
     new_rating_date = match_date + timedelta(days=days_until_saturday)
     if all(col == '' for col in date_columns):
         return new_rating_date.strftime("%m/%d/%Y"), None
     else:     
-        if match_date < datetime.strptime(df.columns[7], "%m/%d/%Y"):
+        if match_date < datetime.strptime(df.columns[6], "%m/%d/%Y"):
             return new_rating_date.strftime("%m/%d/%Y"), None
         elif match_date > datetime.strptime(df.columns[-1], "%m/%d/%Y"):
             return new_rating_date.strftime("%m/%d/%Y"), None
@@ -75,7 +71,7 @@ def get_player_rating(player, new_rating_date, df):
     default_rating = 1300
     new_rating_date_dt = datetime.strptime(new_rating_date, "%m/%d/%Y")
     if player in df['Player'].values:
-        if new_rating_date_dt < datetime.strptime(df.columns[7], "%m/%d/%Y"): 
+        if new_rating_date_dt < datetime.strptime(df.columns[6], "%m/%d/%Y"): 
             return df.loc[df['Player'] == player, 'Initial Rating'].values[0]
         elif new_rating_date_dt > datetime.strptime(df.columns[-1], "%m/%d/%Y"):
             return df.loc[df['Player'] == player, 'Latest Rating'].values[0]
@@ -99,43 +95,53 @@ def get_player_rating(player, new_rating_date, df):
 
 def insert_player_alphabetically(player, new_rating, df):
     """Creates a new row and inserts it into the DataFrame maintaining alphabetical order."""
-    #Finds alphabetically correct insertion point for winner player name
-    insert_index = df['Player'].searchsorted(player)
-    # Split the DataFrame into upper and lower parts
-    upper_part = df.iloc[:insert_index]
-    lower_part = df.iloc[insert_index:]
-    # Create a DataFrame for the new rows
-    new_row = pd.DataFrame({'Player Ordered': [player], 'Latest Rating Ordered': [new_rating], 'Player Alphabetical': [player], 'Latest Rating': [new_rating], 'Player': [player], 'Initial Rating': 1300})
-    # Concatenate the parts with the new row
-    df = pd.concat([upper_part, new_row, lower_part]).reset_index(drop=True)
+    # Create a DataFrame for the new row
+    new_row = pd.DataFrame({'Player Ordered': [player], 'Latest Rating Ordered': [new_rating], 'Player Alphabetical': [player], 'Latest Rating': [new_rating], 'Player': [player], 'Initial Rating': 1300.00})
+    if not df['Player'].any():
+        df = df.reset_index(drop=True)
+        df = pd.concat([df, new_row], ignore_index=True)
+    else:
+        #Finds alphabetically correct insertion point for winner player name
+        insert_index = df['Player'].searchsorted(player)
+        # Split the DataFrame into upper and lower parts
+        upper_part = df.iloc[:insert_index].reset_index(drop=True)
+        lower_part = df.iloc[insert_index:].reset_index(drop=True)
+        # Concatenate the parts with the new row
+        df = pd.concat([upper_part, new_row, lower_part]).reset_index(drop=True)
+    
     return df
+    
+    
     
 def update_player_rating(player, new_rating, new_rating_date, date, elo_point, df):
     """Updates the player's rating in provided dataframe.""" 
     # Convert new_rating_date from string to datetime
     new_rating_date_dt = datetime.strptime(new_rating_date, "%m/%d/%Y")
+    if len(df.columns) == 6:
+        df.insert(loc=6, column=new_rating_date, value=None)
+    else:
+        # Convert the target column date from string to datetime for comparison
+        first_column_date_dt = datetime.strptime(df.columns[6], "%m/%d/%Y")
+        last_column_date_dt = datetime.strptime(df.columns[-1], "%m/%d/%Y")
     
-    # Convert the target column date from string to datetime for comparison
-    first_column_date_dt = datetime.strptime(df.columns[7], "%m/%d/%Y")
-    last_column_date_dt = datetime.strptime(df.columns[-1], "%m/%d/%Y")
-   
-    #Insert new column at the start of the dates
-    if new_rating_date_dt < first_column_date_dt:
-        if new_rating_date not in df.columns:
-            df.insert(loc=7, column=new_rating_date, value=None)  # Use the string version of date for column name
-    #Insert new column at the end of the dates
-    elif new_rating_date_dt > last_column_date_dt:
-        if new_rating_date not in df.columns:
-            df.insert(loc=len(df.columns), column=new_rating_date, value=None)  # Use the string version of date for column name
-        df.loc[df['Player Ordered'] == player, 'Latest Rating Ordered'] = new_rating
-    #Insert new column in between the dates
-    elif new_rating_date not in df.columns:
-        df.insert(loc=df.columns.get_loc(date) + 1, column=new_rating_date, value=None)
+        #Insert new column at the start of the dates
+        if new_rating_date_dt < first_column_date_dt:
+            if new_rating_date not in df.columns:
+                df.insert(loc=6, column=new_rating_date, value=None)  # Use the string version of date for column name
+        #Insert new column at the end of the dates
+        elif new_rating_date_dt > last_column_date_dt:
+            if new_rating_date not in df.columns:
+                df.insert(loc=len(df.columns), column=new_rating_date, value=None)  # Use the string version of date for column name
+            df.loc[df['Player Ordered'] == player, 'Latest Rating Ordered'] = new_rating
+        #Insert new column in between the dates
+        elif new_rating_date not in df.columns:
+            df.insert(loc=df.columns.get_loc(date) + 1, column=new_rating_date, value=None)
     
     # Update the player's rating in the new or existing column
     df.loc[df['Player'] == player, new_rating_date] = new_rating
 
-    #Retroactively updates player's all historical ratings and latest rating if necessary
+    '''This part not working as intended, need to fix it'''
+    #Retroactively updates player's all historical ratings and latest rating if necessary 
     if new_rating_date in df.columns:
         row_index = df[df['Player'] == player].index[0]
         column_index = df.columns.get_loc(new_rating_date)
@@ -287,9 +293,12 @@ if __name__ == "__main__":
     df_doubles = df_doubles.map(clean_and_convert_to_float)
     df_singles = update_ratings_singles(singles_match_data, df_singles)
     df_doubles = update_ratings_doubles(doubles_match_data, df_doubles)
+    print(df_singles)
+    print(df_doubles)
     df_singles_to_sheet = [df_singles.columns.values.tolist()] + df_singles.where(pd.notnull(df_singles), '').values.tolist()
     df_doubles_to_sheet = [df_doubles.columns.values.tolist()] + df_doubles.where(pd.notnull(df_doubles), '').values.tolist()
     Testing_singles.update(df_singles_to_sheet, 'A2')
     Testing_doubles.update(df_doubles_to_sheet, 'A2')
+    print("Success!")
         
    
