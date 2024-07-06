@@ -9,6 +9,7 @@ from Scraper.scraper import open_tournament_link, find_all_matches, match_data
 from RatingAlgorithm import findEloPoint, winProbability
 from datetime import datetime, timedelta
 from GoogleSheets.ReadAndWrite import *
+import itertools, copy
 
 def get_sheet_data_as_dataframe():
     # scopes represent the endpoints to access the google sheets and drive APIs
@@ -271,12 +272,32 @@ if __name__ == "__main__":
 
     # Split the user input into a list of URLs
     links = [url.strip() for url in user_input.split(',')]
+    # Access list of URLS from spreadsheet "All Tournament Links"
+    workbook = access_the_workbook("Copy of Ratings for badminton")
+    linkSheet = workbook.worksheet("All Tournament Links")
+    existingLinks = linkSheet.get("A2:A")
+    try: existingLinks.remove([])
+    except: pass
+    existingLinks_1D = list(itertools.chain.from_iterable(existingLinks))
 
+    # Processing links
     for link in links:
+        if link in existingLinks_1D:
+            print(f"skip processing the existed link:{link}")
+            continue
         soup = open_tournament_link(link)
         link_date = link.split('/')[-1]
         find_all_matches(soup, link_date)
         # print(match_data)
+
+    # Update the existing URLS list without duplicates
+    helperLinks = copy.deepcopy(links)
+    helperLinks_2D = [[link] for link in links]
+    for link in helperLinks:
+        if link not in existingLinks_1D:
+            existingLinks.append([link])
+    print(existingLinks)
+    linkSheet.update(existingLinks, f"A2:A{len(existingLinks) + 1}")
 
     singles_match_data = []
     doubles_match_data = []
@@ -302,3 +323,4 @@ if __name__ == "__main__":
                                                                                   '').values.tolist()
     Testing_singles.update(df_singles_to_sheet, 'A2')
     Testing_doubles.update(df_doubles_to_sheet, 'A2')
+
