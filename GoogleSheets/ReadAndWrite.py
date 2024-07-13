@@ -1,7 +1,21 @@
 # make sure to pip install gspread, gspread_formatting, oauth2client, and PyOpenSSL
+import sys
+sys.path.append('C:/Users/admin/Desktop/BadmintonScraper')
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from Scraper.scraper import open_tournament_link, find_all_matches, match_data
+
+def access_the_workbook(title: str) -> gspread.spreadsheet.Spreadsheet:
+    # scopes represent the endpoints to access the google sheets and drive APIs
+    scopes = [
+        'https://www.googleapis.com/auth/spreadsheets',
+        'https://www.googleapis.com/auth/drive'
+    ]
+    # retrieve credentials from secret keys json and authorize the file
+    credentials = ServiceAccountCredentials.from_json_keyfile_name('C:/Users/admin/Desktop/BadmintonScraper/data/secret_keys.json', scopes)
+    file = gspread.authorize(credentials)
+    workbook = file.open(title)
+    return workbook
 
 '''
 # Convert ["value", "value2", ..., "valueN"] into "value1, value2..., valueN" by default
@@ -9,7 +23,7 @@ from Scraper.scraper import open_tournament_link, find_all_matches, match_data
 '''
 def list_to_string(inputList: list, sep=",") -> str:
     productStr = ""
-    if (len(inputList) == 0): return "walkaway" # for blank list
+    if (len(inputList) == 0): return "walkover" # for blank list
     for val in inputList:
         productStr += val + sep
     return productStr[:len(productStr)-len(sep)]
@@ -77,7 +91,7 @@ scopes = [
 ]
 
 # retrieve credentials from secret keys json and authorize the file
-credentials = ServiceAccountCredentials.from_json_keyfile_name('secret key.json', scopes)
+credentials = ServiceAccountCredentials.from_json_keyfile_name('C:/Users/admin/Desktop/BadmintonScraper/data/secret_keys.json', scopes)
 file = gspread.authorize(credentials)
 workbook = file.open('Copy of Ratings for badminton')
 
@@ -85,26 +99,26 @@ workbook = file.open('Copy of Ratings for badminton')
 singles_match_data = []
 doubles_match_data = []
 title_single, title_double = "Product (Single)", "Product (Double)"
-if __name__ == "__main__":
-    user_input = input("Please enter a list of tournament URLs separated by commas: ")
-    # Split the user input into a list of URLs
-    links = [url.strip() for url in user_input.split(',')]
-    for link in links:
-        soup = open_tournament_link(link)
-        link_date = link.split('/')[-1]
-        find_all_matches(soup, link_date)
-for match in match_data:
-    if len(match['winner']) == 1 and len(match['loser']) == 1:
-        singles_match_data.append(match)
-    elif len(match['winner']) == 2 and len(match['loser']) == 2:
-        doubles_match_data.append(match)
+# if __name__ == "__main__":
+#     user_input = input("Please enter a list of tournament URLs separated by commas: ")
+#     # Split the user input into a list of URLs
+#     links = [url.strip() for url in user_input.split(',')]
+#     for link in links:
+#         soup = open_tournament_link(link)
+#         link_date = link.split('/')[-1]
+#         find_all_matches(soup, link_date)
+# for match in match_data:
+#     if len(match['winner']) == 1 and len(match['loser']) == 1:
+#         singles_match_data.append(match)
+#     elif len(match['winner']) == 2 and len(match['loser']) == 2:
+#         doubles_match_data.append(match)
 
 # Writing data into the spreadsheet
-write_coll_onto_sheet(singles_match_data, workbook, title=title_single)
-write_coll_onto_sheet(doubles_match_data, workbook, title=title_double)
+# write_coll_onto_sheet(singles_match_data, workbook, title=title_single)
+# write_coll_onto_sheet(doubles_match_data, workbook, title=title_double)
 
-# Reading data from the spreadsheet
-matchSheet_single = workbook.worksheet(title_single)
-matchSheet_double = workbook.worksheet(title_double)
-print(f"single data: {read_sheet_onto_coll(matchSheet_single)}")
-print(f"double data: {read_sheet_onto_coll(matchSheet_double)}")
+# # Reading data from the spreadsheet
+# matchSheet_single = workbook.worksheet(title_single)
+# matchSheet_double = workbook.worksheet(title_double)
+# print(f"single data: {read_sheet_onto_coll(matchSheet_single)}")
+# print(f"double data: {read_sheet_onto_coll(matchSheet_double)}")

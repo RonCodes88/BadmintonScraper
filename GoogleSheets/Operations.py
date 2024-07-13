@@ -7,20 +7,17 @@ import pandas as pd
 from Scraper.scraper import open_tournament_link, find_all_matches, match_data
 from RatingAlgorithm import findEloPoint, winProbability
 from datetime import datetime, timedelta
+from ReadAndWrite import access_the_workbook
+import itertools, copy
+from UpdateAllMatchData import write_match_data_onto_product_sheet, filter_df_starting_from_retroactive_date
 
-def get_sheet_data_as_dataframe():
+def get_sheet_data():
     # scopes represent the endpoints to access the google sheets and drive APIs
-    scopes = [
-        'https://www.googleapis.com/auth/spreadsheets',
-        'https://www.googleapis.com/auth/drive'
-    ]
-    # retrieve credentials from secret keys json and authorize the file
-    credentials = ServiceAccountCredentials.from_json_keyfile_name('C:/Users/admin/Desktop/BadmintonScraper/data/secret_keys.json', scopes)
-    file = gspread.authorize(credentials)
-    workbook = file.open('Copy of Ratings for badminton')
+    workbook = access_the_workbook("Copy of Ratings for badminton")
     # Get access to the sheet with specified title
     Testing_singles = workbook.worksheet('Testing Singles')
     Testing_doubles = workbook.worksheet('Testing Doubles')
+    # All_tournament_links = workbook.worksheet('All Tournament Links')
     # currentSinglesSheet = workbook.worksheet("Current Singles")
     # currentDoublesSheet = workbook.worksheet("Current Doubles")
     singles = Testing_singles.get_all_values()
@@ -33,13 +30,11 @@ def get_sheet_data_as_dataframe():
     df_doubles = pd.DataFrame(doubles, columns=headers_doubles)
     return Testing_singles, Testing_doubles, df_singles, df_doubles
 
-
 def clean_and_convert_to_float(cell):
     if isinstance(cell, str) and ',' in cell:
         # Remove commas and convert to float
         return float(cell.replace(',', ''))
     return cell
-
 
 '''For testing purposes'''
 # match_data = [
@@ -66,6 +61,7 @@ def determine_rating_date(match_date, df):
             for i in range(len(date_columns) - 1):
                 if datetime.strptime(date_columns[i], "%m/%d/%Y") <= match_date <= datetime.strptime(date_columns[i + 1], "%m/%d/%Y"):
                     return new_rating_date.strftime("%m/%d/%Y"), date_columns[i]
+    return new_rating_date.strftime("%m/%d/%Y"), None
 
 def get_player_rating(player, new_rating_date, df):  
     default_rating = 1300
@@ -76,22 +72,28 @@ def get_player_rating(player, new_rating_date, df):
         elif new_rating_date_dt > datetime.strptime(df.columns[-1], "%m/%d/%Y"):
             return df.loc[df['Player'] == player, 'Latest Rating'].values[0]
         else: 
-            date_columns = df.columns[7:]
-            for i in range(len(date_columns) - 1):
-                earliest_date = datetime.strptime(date_columns[i], "%m/%d/%Y")
-                latest_date = datetime.strptime(date_columns[i + 1], "%m/%d/%Y")
-                if earliest_date < new_rating_date_dt < latest_date:
-                    value = df.loc[df['Player'] == player, date_columns[i]].values[0]
-                    if pd.notna(value) and value != '':
-                        return value
-                    # If value is NaN, go backwards to find the previous non-NaN value
-                    for j in range(i, -1, -1):
-                        prev_value = df.loc[df['Player'] == player, date_columns[j]].values[0]
-                        if pd.notna(prev_value) and value != '':
-                            return prev_value
+            date_columns = df.columns[6:]
+            if len(date_columns) == 1:
+                value = df.loc[df['Player'] == player, date_columns[0]].values[0]
+                if pd.notna(value) and value != '':
+                    return value
+                else:
+                    '''think about this'''
+                    return df.loc[df['Player'] == player, 'Initial Rating'].values[0]
+            else:
+                for i in range(len(date_columns) - 1):
+                    earliest_date = datetime.strptime(date_columns[i], "%m/%d/%Y")
+                    next_date = datetime.strptime(date_columns[i + 1], "%m/%d/%Y")
+                    if earliest_date <= new_rating_date_dt <= next_date:
+                        value = df.loc[df['Player'] == player, date_columns[i]].values[0]
+                        if pd.notna(value) and value != '':
+                            return value
+                        # If value is NaN, go backwards to find the previous non-NaN value
+                        for j in range(i, -1, -1):
+                            prev_value = df.loc[df['Player'] == player, date_columns[j]].values[0]
+                            if pd.notna(prev_value) and value != '':
+                                return prev_value
     return default_rating
-
-
 
 def insert_player_alphabetically(player, new_rating, df):
     """Creates a new row and inserts it into the DataFrame maintaining alphabetical order."""
@@ -108,19 +110,16 @@ def insert_player_alphabetically(player, new_rating, df):
         lower_part = df.iloc[insert_index:].reset_index(drop=True)
         # Concatenate the parts with the new row
         df = pd.concat([upper_part, new_row, lower_part]).reset_index(drop=True)
-    
     return df
     
-    
-    
-def update_player_rating(player, new_rating, new_rating_date, date, elo_point, df):
+def update_player_rating(player, new_rating, new_rating_date, date, df):
     """Updates the player's rating in provided dataframe.""" 
     # Convert new_rating_date from string to datetime
     new_rating_date_dt = datetime.strptime(new_rating_date, "%m/%d/%Y")
     if len(df.columns) == 6:
         df.insert(loc=6, column=new_rating_date, value=None)
     else:
-        # Convert the target column date from string to datetime for comparison
+        # Convert the first date and last date column from string to datetime for comparison
         first_column_date_dt = datetime.strptime(df.columns[6], "%m/%d/%Y")
         last_column_date_dt = datetime.strptime(df.columns[-1], "%m/%d/%Y")
     
@@ -128,6 +127,9 @@ def update_player_rating(player, new_rating, new_rating_date, date, elo_point, d
         if new_rating_date_dt < first_column_date_dt:
             if new_rating_date not in df.columns:
                 df.insert(loc=6, column=new_rating_date, value=None)  # Use the string version of date for column name
+                #Within the player row, delete all values after the added column for retroactively update
+                player_row_index = df[df['Player'] == player].index[0]
+                df.iloc[player_row_index, df.columns.get_loc(new_rating_date)+1:] = None
         #Insert new column at the end of the dates
         elif new_rating_date_dt > last_column_date_dt:
             if new_rating_date not in df.columns:
@@ -136,28 +138,36 @@ def update_player_rating(player, new_rating, new_rating_date, date, elo_point, d
         #Insert new column in between the dates
         elif new_rating_date not in df.columns:
             df.insert(loc=df.columns.get_loc(date) + 1, column=new_rating_date, value=None)
-    
+            player_row_index = df[df['Player'] == player].index[0]
+            df.iloc[player_row_index, df.columns.get_loc(new_rating_date)+1:] = None
     # Update the player's rating in the new or existing column
     df.loc[df['Player'] == player, new_rating_date] = new_rating
+    
+    #During retroactive update, latest rating can possibly be updated, so update latest ratings 
+    latest_rating = df.loc[df['Player']==player, df.columns[-1]].values[0]
+    current_latest_rating = df.loc[df['Player Alphabetical']==player, 'Latest Rating'].values[0]
+    if latest_rating != current_latest_rating:
+        df.loc[df['Player Alphabetical']==player, 'Latest Rating'] = latest_rating
+        df.loc[df['Player Ordered']==player, 'Latest Rating Ordered'] = latest_rating 
 
-    '''This part not working as intended, need to fix it'''
-    #Retroactively updates player's all historical ratings and latest rating if necessary 
-    if new_rating_date in df.columns:
-        row_index = df[df['Player'] == player].index[0]
-        column_index = df.columns.get_loc(new_rating_date)
-        df.iloc[row_index, column_index + 1:] = df.iloc[row_index, column_index + 1:].apply(
-            lambda x: float(str(x).replace(',', '')) if str(x).replace(',', '').strip() not in ['', 'None'] else None
-        )
-        df.iloc[row_index, column_index + 1:] += elo_point
-        last_valid_col_index = df.iloc[row_index].last_valid_index()
-        latest_rating = df.iloc[row_index, df.columns.get_loc(last_valid_col_index)]
-        df.loc[df['Player Ordered'] == player, 'Latest Rating Ordered'] = latest_rating
-        df.loc[df['Player'] == player, 'Latest Rating'] = latest_rating
-
+    
+    '''old retroactive update code'''
+    # if new_rating_date in df.columns:
+    #     row_index = df[df['Player'] == player].index[0]
+    #     column_index = df.columns.get_loc(new_rating_date)
+    #     df.iloc[row_index, column_index + 1:] = df.iloc[row_index, column_index + 1:].apply(
+    #         lambda x: float(str(x).replace(',', '')) if str(x).replace(',', '').strip() not in ['', 'None'] else None
+    #     )
+    #     df.iloc[row_index, column_index + 1:] += elo_point
+    #     last_valid_col_index = df.iloc[row_index].last_valid_index()
+    #     latest_rating = df.iloc[row_index, df.columns.get_loc(last_valid_col_index)]
+    #     df.loc[df['Player Ordered'] == player, 'Latest Rating Ordered'] = latest_rating
+    #     df.loc[df['Player'] == player, 'Latest Rating'] = latest_rating
 
 def sort_by_latest_rating(df):
     """Splits the dataframe into two parts, orders the first part by rating and concatenates the two parts back together."""
-    df['Latest Rating Ordered'] = df['Latest Rating Ordered'].apply(lambda x: float(str(x).replace(',', '')))
+    # df['Latest Rating Ordered'] = df['Latest Rating Ordered'].apply(lambda x: float(str(x).replace(',', '')))
+    df['Latest Rating Ordered'] = pd.to_numeric(df['Latest Rating Ordered'], errors='coerce').astype(float)
     df_ordered_rating = df[['Player Ordered', 'Latest Rating Ordered']].sort_values(by='Latest Rating Ordered', ascending=False)
     df_alphabetical = df[[col for col in df.columns if col not in df_ordered_rating.columns]]
     df_ordered_rating.reset_index(drop=True, inplace=True)
@@ -165,12 +175,10 @@ def sort_by_latest_rating(df):
     df = pd.concat([df_ordered_rating, df_alphabetical], axis=1)
     return df
 
-
-def update_ratings_singles(singles_match_data, df_singles):
+def update_ratings_singles(df_singles_filtered_product, df_singles):
     """Loop through all players from singles data and update their ratings"""
-    for singles_match in singles_match_data:
-        winner, loser = singles_match["winner"][0], singles_match["loser"][0]
-        
+    for _, singles_match in df_singles_filtered_product.iterrows():
+        winner, loser = singles_match['winner'], singles_match['loser']
         new_rating_date, date = determine_rating_date(singles_match['date'], df_singles)
 
         winner_rating = get_player_rating(winner, new_rating_date, df_singles)
@@ -185,28 +193,27 @@ def update_ratings_singles(singles_match_data, df_singles):
         if winner not in df_singles['Player'].values:  # Implies winner is new
             #Inserts winner player into dataframe in alphabetical order as a new row
             df_singles = insert_player_alphabetically(winner, winner_new_rating, df_singles)
-            update_player_rating(winner, winner_new_rating, new_rating_date, date, winner_elo, df_singles)
+            update_player_rating(winner, winner_new_rating, new_rating_date, date, df_singles)
         else:
             #Since winner player already exists, update their rating
-            update_player_rating(winner, winner_new_rating, new_rating_date, date, winner_elo, df_singles)
+            update_player_rating(winner, winner_new_rating, new_rating_date, date, df_singles)
 
         if loser not in df_singles['Player'].values:  # Implies loser is new
             #Inserts loser player into dataframe in alphabetical order as a new row
             df_singles = insert_player_alphabetically(loser, loser_new_rating, df_singles)
-            update_player_rating(loser, loser_new_rating, new_rating_date, date, loser_elo, df_singles)
+            update_player_rating(loser, loser_new_rating, new_rating_date, date, df_singles)
         else:
             #Since loser player already exists, update their rating
-            update_player_rating(loser, loser_new_rating, new_rating_date, date, loser_elo, df_singles)
+            update_player_rating(loser, loser_new_rating, new_rating_date, date, df_singles)
         #Orders dataframe by latest rating
         df_singles = sort_by_latest_rating(df_singles)
     return df_singles
 
-def update_ratings_doubles(doubles_match_data, df_doubles):
+def update_ratings_doubles(df_doubles_filtered_product, df_doubles):
     """Loop through all players from doubles data and update their ratings"""
-    for doubles_match in doubles_match_data:
-        winner1, winner2 = doubles_match["winner"][0], doubles_match["winner"][1]
-        loser1, loser2 = doubles_match["loser"][0], doubles_match["loser"][1]
-        
+    for _, doubles_match in df_doubles_filtered_product.iterrows():
+        winner1, winner2 = doubles_match['winner'].split(',')
+        loser1, loser2 = doubles_match['loser'].split(',')
         new_rating_date, date = determine_rating_date(doubles_match['date'], df_doubles)
 
         winner1_rating = get_player_rating(winner1, new_rating_date, df_doubles)
@@ -228,39 +235,38 @@ def update_ratings_doubles(doubles_match_data, df_doubles):
         if winner1 not in df_doubles['Player'].values:  # Implies winner is new
             #Inserts winner player into dataframe in alphabetical order as a new row
             df_doubles = insert_player_alphabetically(winner1, winner1_new_rating, df_doubles)
-            update_player_rating(winner1, winner1_new_rating, new_rating_date, date, winner_elo, df_doubles)
+            update_player_rating(winner1, winner1_new_rating, new_rating_date, date,  df_doubles)
         else:
             #Since winner player already exists, update their rating
-            update_player_rating(winner1, winner1_new_rating, new_rating_date, date, winner_elo, df_doubles)
+            update_player_rating(winner1, winner1_new_rating, new_rating_date, date,  df_doubles)
 
         if winner2 not in df_doubles['Player'].values:  # Implies winner is new
             #Inserts winner player into dataframe in alphabetical order as a new row
             df_doubles = insert_player_alphabetically(winner2, winner2_new_rating, df_doubles)
-            update_player_rating(winner2, winner2_new_rating, new_rating_date, date, winner_elo, df_doubles)
+            update_player_rating(winner2, winner2_new_rating, new_rating_date, date, df_doubles)
         else:
             #Since winner player already exists, update their rating
-            update_player_rating(winner2, winner2_new_rating, new_rating_date, date, winner_elo, df_doubles)
+            update_player_rating(winner2, winner2_new_rating, new_rating_date, date, df_doubles)
 
         if loser1 not in df_doubles['Player'].values:  # Implies loser is new
             #Inserts loser player into dataframe in alphabetical order as a new row
             df_doubles = insert_player_alphabetically(loser1, loser1_new_rating, df_doubles)
-            update_player_rating(loser1, loser1_new_rating, new_rating_date, date, loser_elo, df_doubles)
+            update_player_rating(loser1, loser1_new_rating, new_rating_date, date, df_doubles)
         else:
             #Since loser player already exists, update their rating
-            update_player_rating(loser1, loser1_new_rating, new_rating_date, date, loser_elo, df_doubles)
+            update_player_rating(loser1, loser1_new_rating, new_rating_date, date, df_doubles)
 
         if loser2 not in df_doubles['Player'].values:  # Implies loser is new
             #Inserts loser player into dataframe in alphabetical order as a new row
             df_doubles = insert_player_alphabetically(loser2, loser2_new_rating, df_doubles)
-            update_player_rating(loser2, loser2_new_rating, new_rating_date, date, loser_elo, df_doubles)
+            update_player_rating(loser2, loser2_new_rating, new_rating_date, date, df_doubles)
         else:
             #Since loser player already exists, update their rating
-            update_player_rating(loser2, loser2_new_rating, new_rating_date, date, loser_elo, df_doubles)
+            update_player_rating(loser2, loser2_new_rating, new_rating_date, date, df_doubles)
         
         #Orders dataframe by latest rating
         df_doubles = sort_by_latest_rating(df_doubles)
     return df_doubles
-
 
 
 if __name__ == "__main__":
@@ -268,13 +274,34 @@ if __name__ == "__main__":
 
     # Split the user input into a list of URLs
     links = [url.strip() for url in user_input.split(',')]
-
+    # Access list of URLS from spreadsheet "All Tournament Links"
+    workbook = access_the_workbook("Copy of Ratings for badminton")
+    linkSheet = workbook.worksheet("All Tournament Links")
+    existingLinks = linkSheet.get("A2:A")
+    try: existingLinks.remove([])
+    except: pass
+    existingLinks_1D = list(itertools.chain.from_iterable(existingLinks))
+    
+    #Processing links
     for link in links:
+        if link in existingLinks_1D:
+            print(f"skip processing the existed link:{link}")
+            continue
         soup = open_tournament_link(link)
         link_date = link.split('/')[-1]
         find_all_matches(soup, link_date)
         # print(match_data)
     
+    # Update the existing URLS list without duplicates
+    helperLinks = copy.deepcopy(links)
+    helperLinks_2D = [[link] for link in links]
+    
+    for link in helperLinks:
+        if link not in existingLinks_1D:
+            existingLinks.append([link])
+    print(existingLinks)
+    linkSheet.update(existingLinks, f"A2:A{len(existingLinks) + 1}")
+
     singles_match_data = []
     doubles_match_data = []
 
@@ -284,15 +311,17 @@ if __name__ == "__main__":
         elif len(match['winner']) == 2 and len(match['loser']) == 2:
             doubles_match_data.append(match)
     
-    print(singles_match_data)
-    print(doubles_match_data)
+
+    singlesProductSheet, doublesProductSheet = write_match_data_onto_product_sheet(singles_match_data, doubles_match_data, workbook)
+    #Calls filter function to filter data starting from the earliest retroactive date
+    df_singles_filtered_product, df_doubles_filtered_product = filter_df_starting_from_retroactive_date(singles_match_data, doubles_match_data, singlesProductSheet, doublesProductSheet)
     
-    Testing_singles, Testing_doubles, df_singles, df_doubles = get_sheet_data_as_dataframe()
+    Testing_singles, Testing_doubles, df_singles, df_doubles = get_sheet_data()
     # Apply the function element-wise to each cell in the dataframe
-    df_singles = df_singles.map(clean_and_convert_to_float)
-    df_doubles = df_doubles.map(clean_and_convert_to_float)
-    df_singles = update_ratings_singles(singles_match_data, df_singles)
-    df_doubles = update_ratings_doubles(doubles_match_data, df_doubles)
+    df_singles = df_singles.apply(clean_and_convert_to_float)
+    df_doubles = df_doubles.apply(clean_and_convert_to_float)
+    df_singles = update_ratings_singles(df_singles_filtered_product, df_singles)
+    df_doubles = update_ratings_doubles(df_doubles_filtered_product, df_doubles)
     print(df_singles)
     print(df_doubles)
     df_singles_to_sheet = [df_singles.columns.values.tolist()] + df_singles.where(pd.notnull(df_singles), '').values.tolist()
