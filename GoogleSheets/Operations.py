@@ -78,7 +78,6 @@ def get_player_rating(player, new_rating_date, df):
                 if pd.notna(value) and value != '':
                     return value
                 else:
-                    '''think about this'''
                     return df.loc[df['Player'] == player, 'Initial Rating'].values[0]
             else:
                 for i in range(len(date_columns) - 1):
@@ -91,7 +90,7 @@ def get_player_rating(player, new_rating_date, df):
                         # If value is NaN, go backwards to find the previous non-NaN value
                         for j in range(i, -1, -1):
                             prev_value = df.loc[df['Player'] == player, date_columns[j]].values[0]
-                            if pd.notna(prev_value) and value != '':
+                            if pd.notna(prev_value) and prev_value != '':
                                 return prev_value
     return default_rating
 
@@ -99,7 +98,11 @@ def insert_player_alphabetically(player, new_rating, df):
     """Creates a new row and inserts it into the DataFrame maintaining alphabetical order."""
     # Create a DataFrame for the new row
     new_row = pd.DataFrame({'Player Ordered': [player], 'Latest Rating Ordered': [new_rating], 'Player Alphabetical': [player], 'Latest Rating': [new_rating], 'Player': [player], 'Initial Rating': 1300.00})
-    if not df['Player'].any():
+    
+    df = df.dropna(axis=1, how='all')
+    new_row = new_row.dropna(axis=1, how='all')
+
+    if df.empty or not df['Player'].notna().any():
         df = df.reset_index(drop=True)
         df = pd.concat([df, new_row], ignore_index=True)
     else:
@@ -144,8 +147,13 @@ def update_player_rating(player, new_rating, new_rating_date, date, df):
     df.loc[df['Player'] == player, new_rating_date] = new_rating
     
     #During retroactive update, latest rating can possibly be updated, so update latest ratings 
-    latest_rating = df.loc[df['Player']==player, df.columns[-1]].values[0]
-    current_latest_rating = df.loc[df['Player Alphabetical']==player, 'Latest Rating'].values[0]
+    for col in df.columns[::-1][:-6]:  # Iterate from the last column down to column index 6
+        value = df.loc[df['Player'] == player, col].values[0]
+        if not pd.isna(value) and value != '':  # Check if the value is not Nan, None, or an empty string
+            latest_rating = float(value)
+            break
+
+    current_latest_rating = float(df.loc[df['Player Alphabetical']==player, 'Latest Rating'].values[0])
     if latest_rating != current_latest_rating:
         df.loc[df['Player Alphabetical']==player, 'Latest Rating'] = latest_rating
         df.loc[df['Player Ordered']==player, 'Latest Rating Ordered'] = latest_rating 
