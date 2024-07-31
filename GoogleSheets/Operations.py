@@ -1,13 +1,13 @@
-import sys
+#import sys
 
-sys.path.append('C:/Users/admin/Desktop/BadmintonScraper')
+#sys.path.append('C:/Users/admin/Desktop/BadmintonScraper')
 import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 # from gspread_dataframe import get_as_dataframe, set_with_dataframe
 import pandas as pd
 from Scraper.scraper import open_tournament_link, find_all_matches, match_data
-from RatingAlgorithm import findEloPoint, winProbability
-from datetime import datetime, timedelta
+from RatingAlgorithm import *
+from datetime import datetime, timedelta, date
 from GoogleSheets.ReadAndWrite import *
 import itertools, copy
 
@@ -19,7 +19,7 @@ def get_sheet_data_as_dataframe():
     ]
     # retrieve credentials from secret keys json and authorize the file
     credentials = ServiceAccountCredentials.from_json_keyfile_name(
-        'C:/Users/admin/Desktop/BadmintonScraper/data/secret_keys.json', scopes)
+        'secret key.json', scopes)
     file = gspread.authorize(credentials)
     workbook = file.open('Copy of Ratings for badminton')
     # Get access to the sheet with specified title
@@ -169,6 +169,52 @@ def sort_by_latest_rating(df):
     df = pd.concat([df_ordered_rating, df_alphabetical], axis=1)
     return df
 
+# update player rating that hasn't played for 180 days in single/double dataframe
+# (dropped by 20%/180 each day)
+def update_inactive_player(player, df):
+    playerRow = df[df['Player'] == player]
+    validDates, blankDates = [],[]
+    # Iterate from the last column down to earliest match date's column
+    # the purpose is to fill up validDates with ['01/26/2025', '01/25/2024', ...]
+    for colDate in df.columns[::-1][:-6]:
+        rating = playerRow[colDate].values[0]
+        if pd.isna(rating) or rating == '':
+            blankDates.append(colDate)
+        else:
+            validDates.append(colDate)
+    # Sort dates to process from earliest to latest
+    validDates = sorted(validDates, key=lambda date: datetime.strptime(date, "%m/%d/%Y"))
+    # Add earliest blank date if there's only 1 validDate
+    if (len(validDates) == 1):
+        validDates.insert(0, blankDates[-1])
+    # Update ratings for inactive periods
+    for i in range(len(validDates)-1):
+        current = datetime.strptime(validDates[i], "%m/%d/%Y")
+        latter = datetime.strptime(validDates[i+1], "%m/%d/%Y")
+        days_difference = abs((current - latter).days)
+        # if the player has been inactive for 180 days
+        if days_difference >= 180:
+            latterRating_str = playerRow[validDates[i+1]].values[0]
+            latterRating = float(latterRating_str.replace(",", ""))
+            # Apply 20% reduction for each 180-day period
+            while (days_difference > 180):
+                latterRating *= 0.8
+                days_difference -= 180
+            # Apply proportional reduction for remaining days
+            if (days_difference > 0):
+                rating_decreased = latterRating * (0.2 / 180) * days_difference
+                # Update the next dates' rating in the dataframe
+                df.loc[df['Player'] == player, validDates[i+1]] = latterRating - rating_decreased
+                # Decrease each rating to the right of validDates[i + 1] by the amount of rating_decreased
+                for j in range(i + 2, len(validDates)):
+                    currentRating_str = playerRow[validDates[j]].values[0]
+                    if pd.isna(currentRating_str) or currentRating_str == '':
+                        continue
+                    currentRating = float(currentRating_str.replace(",", ""))
+                    currentRating -= rating_decreased
+                    df.loc[df['Player'] == player, validDates[j]] = currentRating
+    return df
+
 
 def update_ratings_singles(singles_match_data, df_singles):
     """Loop through all players from singles data and update their ratings"""
@@ -266,7 +312,7 @@ def update_ratings_doubles(doubles_match_data, df_doubles):
         df_doubles = sort_by_latest_rating(df_doubles)
     return df_doubles
 
-
+'''
 if __name__ == "__main__":
     user_input = input("Please enter a list of tournament URLs separated by commas: ")
 
@@ -308,13 +354,13 @@ if __name__ == "__main__":
         elif len(match['winner']) == 2 and len(match['loser']) == 2:
             doubles_match_data.append(match)
 
-    print(singles_match_data)
-    print(doubles_match_data)
+    #print(singles_match_data)
+    #print(doubles_match_data)
 
     Testing_singles, Testing_doubles, df_singles, df_doubles = get_sheet_data_as_dataframe()
     # Apply the function element-wise to each cell in the dataframe
-    df_singles = df_singles.map(clean_and_convert_to_float)
-    df_doubles = df_doubles.map(clean_and_convert_to_float)
+    #df_singles = df_singles.map(clean_and_convert_to_float)
+    #df_doubles = df_doubles.map(clean_and_convert_to_float)
     df_singles = update_ratings_singles(singles_match_data, df_singles)
     df_doubles = update_ratings_doubles(doubles_match_data, df_doubles)
     df_singles_to_sheet = [df_singles.columns.values.tolist()] + df_singles.where(pd.notnull(df_singles),
@@ -323,4 +369,19 @@ if __name__ == "__main__":
                                                                                   '').values.tolist()
     Testing_singles.update(df_singles_to_sheet, 'A2')
     Testing_doubles.update(df_doubles_to_sheet, 'A2')
-
+'''
+# Testing inactive rating method
+sample_data = pd.DataFrame({
+    'Player Ordered': ['Jasper'],
+    'Latest Rating Ordered': ['100'],
+    'Player Alphabetical': ['Jasper'],
+    'Latest Rating': ['100'],
+    'Player': ['Jasper'],
+    'Initial Rating': ['100'],
+    '01/25/2021': [''],
+    '01/25/2022': [''],
+    '01/25/2023': ['100'],
+})
+pd.set_option('display.max_rows', None)
+pd.set_option('display.max_columns', None)
+print(update_inactive_player('Jasper', sample_data))
