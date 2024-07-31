@@ -183,7 +183,67 @@ def sort_by_latest_rating(df):
     df = pd.concat([df_ordered_rating, df_alphabetical], axis=1)
     return df
 
-def update_ratings_singles(df_singles_filtered_product, df_singles):
+# update player rating that hasn't played for 180 days in single/double dataframe
+# (dropped by 20%/180 each day)
+def update_inactive_player(player, df):
+    playerRow = df[df['Player'] == player]
+    validDates, blankDates = [],[]
+    # Iterate from the last column down to earliest match date's column
+    # the purpose is to fill up validDates with ['01/26/2025', '01/25/2024', ...]
+    for colDate in df.columns[::-1][:-6]:
+        rating = playerRow[colDate].values[0]
+        if pd.isna(rating) or rating == '':
+            blankDates.append(colDate)
+        else:
+            validDates.append(colDate)
+    # Sort dates to process from earliest to latest
+    validDates = sorted(validDates, key=lambda date: datetime.strptime(date, "%m/%d/%Y"))
+    # Add earliest blank date if there's only 1 validDate
+    if (len(validDates) == 1):
+        validDates.insert(0, blankDates[-1])
+    # Update ratings for inactive periods
+    for i in range(len(validDates)-1):
+        current = datetime.strptime(validDates[i], "%m/%d/%Y")
+        latter = datetime.strptime(validDates[i+1], "%m/%d/%Y")
+        days_difference = abs((current - latter).days)
+        # if the player has been inactive for 180 days
+        if days_difference >= 180:
+            latterRating_str = playerRow[validDates[i+1]].values[0]
+            latterRating = float(latterRating_str.replace(",", ""))
+            # Apply 20% reduction for each 180-day period
+            while (days_difference > 180):
+                latterRating *= 0.8
+                days_difference -= 180
+            # Apply proportional reduction for remaining days
+            if (days_difference > 0):
+                rating_decreased = latterRating * (0.2 / 180) * days_difference
+                # Update the next dates' rating in the dataframe
+                df.loc[df['Player'] == player, validDates[i+1]] = latterRating - rating_decreased
+                # Decrease each rating to the right of validDates[i + 1] by the amount of rating_decreased
+                for j in range(i + 2, len(validDates)):
+                    currentRating_str = playerRow[validDates[j]].values[0]
+                    if pd.isna(currentRating_str) or currentRating_str == '':
+                        continue
+                    currentRating = float(currentRating_str.replace(",", ""))
+                    currentRating -= rating_decreased
+                    df.loc[df['Player'] == player, validDates[j]] = currentRating
+    return df
+
+# Testing inactive rating method
+sample_data = pd.DataFrame({
+    'Player Ordered': ['Jasper'],
+    'Latest Rating Ordered': ['100'],
+    'Player Alphabetical': ['Jasper'],
+    'Latest Rating': ['100'],
+    'Player': ['Jasper'],
+    'Initial Rating': ['100'],
+    '01/25/2021': [''],
+    '01/25/2022': [''],
+    '01/25/2023': ['100'],
+})
+
+
+def update_ratings_singles(df_singles_filtered_product, df_singles, optimize):
     """Loop through all players from singles data and update their ratings"""
     for _, singles_match in df_singles_filtered_product.iterrows():
         winner, loser = singles_match['winner'], singles_match['loser']
@@ -205,6 +265,9 @@ def update_ratings_singles(df_singles_filtered_product, df_singles):
         else:
             #Since winner player already exists, update their rating
             update_player_rating(winner, winner_new_rating, new_rating_date, date, df_singles)
+        
+        if optimize:
+            df_singles = update_inactive_player(winner, df_singles)
 
         if loser not in df_singles['Player'].values:  # Implies loser is new
             #Inserts loser player into dataframe in alphabetical order as a new row
@@ -213,11 +276,14 @@ def update_ratings_singles(df_singles_filtered_product, df_singles):
         else:
             #Since loser player already exists, update their rating
             update_player_rating(loser, loser_new_rating, new_rating_date, date, df_singles)
+        
+        if optimize:
+            df_singles = update_inactive_player(loser, df_singles)
         #Orders dataframe by latest rating
         df_singles = sort_by_latest_rating(df_singles)
     return df_singles
 
-def update_ratings_doubles(df_doubles_filtered_product, df_doubles):
+def update_ratings_doubles(df_doubles_filtered_product, df_doubles, optimize):
     """Loop through all players from doubles data and update their ratings"""
     for _, doubles_match in df_doubles_filtered_product.iterrows():
         winner1, winner2 = doubles_match['winner'].split(',')
@@ -248,6 +314,9 @@ def update_ratings_doubles(df_doubles_filtered_product, df_doubles):
             #Since winner player already exists, update their rating
             update_player_rating(winner1, winner1_new_rating, new_rating_date, date,  df_doubles)
 
+        if optimize:
+            df_doubles = update_inactive_player(winner1, df_doubles)
+
         if winner2 not in df_doubles['Player'].values:  # Implies winner is new
             #Inserts winner player into dataframe in alphabetical order as a new row
             df_doubles = insert_player_alphabetically(winner2, winner2_new_rating, df_doubles)
@@ -255,6 +324,9 @@ def update_ratings_doubles(df_doubles_filtered_product, df_doubles):
         else:
             #Since winner player already exists, update their rating
             update_player_rating(winner2, winner2_new_rating, new_rating_date, date, df_doubles)
+
+        if optimize:
+            df_doubles = update_inactive_player(winner2, df_doubles)
 
         if loser1 not in df_doubles['Player'].values:  # Implies loser is new
             #Inserts loser player into dataframe in alphabetical order as a new row
@@ -264,6 +336,9 @@ def update_ratings_doubles(df_doubles_filtered_product, df_doubles):
             #Since loser player already exists, update their rating
             update_player_rating(loser1, loser1_new_rating, new_rating_date, date, df_doubles)
 
+        if optimize:
+            df_doubles = update_inactive_player(loser1, df_doubles)
+
         if loser2 not in df_doubles['Player'].values:  # Implies loser is new
             #Inserts loser player into dataframe in alphabetical order as a new row
             df_doubles = insert_player_alphabetically(loser2, loser2_new_rating, df_doubles)
@@ -272,6 +347,9 @@ def update_ratings_doubles(df_doubles_filtered_product, df_doubles):
             #Since loser player already exists, update their rating
             update_player_rating(loser2, loser2_new_rating, new_rating_date, date, df_doubles)
         
+        if optimize:
+            df_doubles = update_inactive_player(loser2, df_doubles)
+
         #Orders dataframe by latest rating
         df_doubles = sort_by_latest_rating(df_doubles)
     return df_doubles
@@ -328,8 +406,18 @@ if __name__ == "__main__":
     # Apply the function element-wise to each cell in the dataframe
     df_singles = df_singles.apply(clean_and_convert_to_float)
     df_doubles = df_doubles.apply(clean_and_convert_to_float)
-    df_singles = update_ratings_singles(df_singles_filtered_product, df_singles)
-    df_doubles = update_ratings_doubles(df_doubles_filtered_product, df_doubles)
+
+    second_user_input = input("Would you like to optimize for inactive players? (Y/N): ")
+
+    if second_user_input.lower() == 'y':
+        optimize = True
+    elif second_user_input.lower() == 'n':  
+        optimize = False
+    else:
+        print(f"Invalid input. '{second_user_input}' Please try again.")
+    
+    df_singles = update_ratings_singles(df_singles_filtered_product, df_singles, optimize)
+    df_doubles = update_ratings_doubles(df_doubles_filtered_product, df_doubles, optimize)
     print(df_singles)
     print(df_doubles)
     df_singles_to_sheet = [df_singles.columns.values.tolist()] + df_singles.where(pd.notnull(df_singles), '').values.tolist()
@@ -338,4 +426,5 @@ if __name__ == "__main__":
     Testing_doubles.update(df_doubles_to_sheet, 'A2')
     print("Success!")
         
-   
+
+
