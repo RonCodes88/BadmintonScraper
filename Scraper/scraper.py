@@ -103,6 +103,7 @@ def find_all_matches(soup, link_date):
                 result.append(f"{winner_score.text.strip()}-{loser_score_list[0].text.strip()}")
         
         match_data.append({"winner": winner, "loser": loser, "result": result, "date": link_date})
+    
         
 # user_input = input("Please enter a list of tournament URLs separated by commas: ")
 

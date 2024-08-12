@@ -14,7 +14,7 @@ def findEloPoint(rating1: float, rating2: float, k: float, matchResult: bool) ->
     # Case2: player1 loses
     else:
         eloPoint = k * (0.0 - P1)
-    return eloPoint
+    return round(eloPoint, 2)
 
 
 
